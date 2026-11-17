@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- StudyLock custom theme attributes — M3 design system semantic aliases -->
+    <attr name="sl_color_surface_quiet" format="reference|color" />
+    <attr name="sl_color_surface_elevated" format="reference|color" />
+    <attr name="sl_color_text_primary" format="reference|color" />
+    <attr name="sl_color_text_secondary" format="reference|color" />
+    <attr name="sl_color_accent_primary" format="reference|color" />
+    <attr name="sl_color_accent_light" format="reference|color" />
+</resources>

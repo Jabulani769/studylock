@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Design direction amended 2026-11-17 (D-09): light lavender course-app style. -->
+    <!-- Reference palette: violet #6C4CE0, indigo #3B5BDB, coral #D9534F,
+         magenta #BE3D9E, amber #F5B301 on lavender #F5F3FF. -->
+
+    <color name="colorPrimary">#6C4CE0</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+    <color name="colorPrimaryContainer">#EDE9FE</color>
+    <color name="colorOnPrimaryContainer">#3B2B8C</color>
+
+    <color name="colorSecondary">#3B5BDB</color>
+    <color name="colorOnSecondary">#FFFFFF</color>
+    <color name="colorSecondaryContainer">#E4EAFF</color>
+    <color name="colorOnSecondaryContainer">#233C91</color>
+
+    <color name="colorTertiary">#BE3D9E</color>
+    <color name="colorOnTertiary">#FFFFFF</color>
+    <color name="colorTertiaryContainer">#FBE4F6</color>
+    <color name="colorOnTertiaryContainer">#7A2264</color>
+
+    <color name="colorSurface">#FFFFFF</color>
+    <color name="colorOnSurface">#17143A</color>
+    <color name="colorSurfaceVariant">#EDEAF8</color>
+    <color name="colorOnSurfaceVariant">#6B6585</color>
+
+    <color name="colorBackground">#F5F3FF</color>
+    <color name="colorOnBackground">#17143A</color>
+
+    <color name="colorError">#D9534F</color>
+    <color name="colorOnError">#FFFFFF</color>
+    <color name="colorErrorContainer">#FDE7E6</color>
+    <color name="colorOnErrorContainer">#8C2B27</color>
+
+    <color name="colorOutline">#CFC9E8</color>
+    <color name="colorOutlineVariant">#E6E2F5</color>
+
+    <color name="colorInverseSurface">#17143A</color>
+    <color name="colorInverseOnSurface">#F5F3FF</color>
+    <color name="colorInversePrimary">#B9A8FF</color>
+
+    <!-- Semantic aliases used by bespoke components. -->
+    <color name="sl_color_surface_quiet">#F5F3FF</color>
+    <color name="sl_color_surface_elevated">#FFFFFF</color>
+    <color name="sl_color_text_primary">#17143A</color>
+    <color name="sl_color_text_secondary">#6B6585</color>
+    <color name="sl_color_accent_primary">#6C4CE0</color>
+    <color name="sl_color_accent_light">#EDE9FE</color>
+    <color name="sl_color_hero_blue">#3B5BDB</color>
+    <color name="sl_color_hero_coral">#D9534F</color>
+    <color name="sl_color_hero_magenta">#BE3D9E</color>
+    <color name="sl_color_hero_amber">#F5B301</color>
+    <color name="sl_color_media">#191640</color>
+</resources>

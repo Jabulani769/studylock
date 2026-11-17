@@ -1,0 +1,29 @@
+# Machine-specific Android SDK location
+/local.properties
+
+# Gradle
+/.gradle/
+**/build/
+.gradle/
+*.gradle.kts.bak
+
+# IDE / editor
+/.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local environment / OS
+.DS_Store
+*.log
+local.properties
+
+# Signing material (never commit keys)
+*.jks
+*.keystore
+!debug.keystore.example
+
+# Temporary files
+*.tmp
+*.bak

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- True-dark variant (D-09 amendment 2026-11-17): black background,
+         near-black surfaces and soft light accents. Bright light-theme card
+         colours are replaced by muted dark tones of the same hues. -->
+
+    <color name="colorPrimary">#C9B8FF</color>
+    <color name="colorOnPrimary">#140E2B</color>
+    <color name="colorPrimaryContainer">#2A2348</color>
+    <color name="colorOnPrimaryContainer">#EDE9FE</color>
+
+    <color name="colorSecondary">#B7C8FF</color>
+    <color name="colorOnSecondary">#0E142B</color>
+    <color name="colorSecondaryContainer">#1F2A52</color>
+    <color name="colorOnSecondaryContainer">#DCE5FF</color>
+
+    <color name="colorTertiary">#EDB9DE</color>
+    <color name="colorOnTertiary">#2C0F24</color>
+    <color name="colorTertiaryContainer">#4A2340</color>
+    <color name="colorOnTertiaryContainer">#FBE4F6</color>
+
+    <color name="colorSurface">#111111</color>
+    <color name="colorOnSurface">#F2F0FA</color>
+    <color name="colorSurfaceVariant">#1C1C1C</color>
+    <color name="colorOnSurfaceVariant">#B9B6C9</color>
+
+    <color name="colorBackground">#000000</color>
+    <color name="colorOnBackground">#F2F0FA</color>
+
+    <color name="colorError">#FFA29E</color>
+    <color name="colorOnError">#2A0B09</color>
+    <color name="colorErrorContainer">#4A1A17</color>
+    <color name="colorOnErrorContainer">#FDE7E6</color>
+
+    <color name="colorOutline">#4A4756</color>
+    <color name="colorOutlineVariant">#2C2A34</color>
+
+    <color name="colorInverseSurface">#F2F0FA</color>
+    <color name="colorInverseOnSurface">#000000</color>
+    <color name="colorInversePrimary">#6C4CE0</color>
+
+    <!-- Semantic card colours: muted dark counterparts of the light palette. -->
+    <color name="sl_color_surface_quiet">#000000</color>
+    <color name="sl_color_surface_elevated">#111111</color>
+    <color name="sl_color_text_primary">#F2F0FA</color>
+    <color name="sl_color_text_secondary">#B9B6C9</color>
+    <color name="sl_color_accent_primary">#4E3AA6</color>
+    <color name="sl_color_accent_light">#2A2348</color>
+    <color name="sl_color_hero_blue">#2A3D7A</color>
+    <color name="sl_color_hero_coral">#6E3535</color>
+    <color name="sl_color_hero_magenta">#63305A</color>
+    <color name="sl_color_hero_amber">#7A601A</color>
+    <color name="sl_color_media">#08080C</color>
+</resources>
