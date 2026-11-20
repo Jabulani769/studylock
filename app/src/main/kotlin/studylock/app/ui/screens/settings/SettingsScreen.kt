@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -606,7 +607,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(Spacing.xxl))
         StudyLockCard {
             Text(
-                text = "StudyLock ${BuildConfig.VERSION_NAME}",
+                text = "StudyLock ${BuildConfig.VERSION_NAME} · first version",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -620,6 +621,50 @@ fun SettingsScreen(
                 text = "Academic planning is local and deterministic. No topics, dates or exam requirements are invented.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.xxl))
+        SectionHeading(
+            title = "Acknowledgments",
+            supporting = "The people behind this first version."
+        )
+        Spacer(Modifier.height(Spacing.md))
+        StudyLockCard {
+            Text(
+                text = "Developer",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = "Jabulani Kapherachoka",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "github.com/Jabulani769/",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Jabulani769/"))
+                    )
+                }
+            )
+            Spacer(Modifier.height(Spacing.md))
+            HorizontalDivider()
+            Spacer(Modifier.height(Spacing.md))
+            Text(
+                text = "Development assistance",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = "OpenCode",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
         Spacer(Modifier.height(Spacing.xl))
