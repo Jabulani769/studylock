@@ -28,7 +28,18 @@ data class SchedulerConfig(
     /** Previous schedule version; the new result is priorVersion + 1. */
     val priorVersion: Int = 1,
     /** Identifier of the academic-data snapshot used, for rationale/versioning. */
-    val academicDataVersion: String = ""
+    val academicDataVersion: String = "",
+
+    /** "Stick to my routine": one automatic session a day, no exam phasing. */
+    val routineMode: Boolean = false,
+    /** Owner-approved compression first step when the workload will not fit. */
+    val compressedLearningMinutesPerSession: Int = 105,
+    /** Set only after the user explicitly accepts the redesign. */
+    val useCompressedPlan: Boolean = false,
+    /** Time-boxed extra weekday block, explicit opt-in only (D-23). */
+    val extraWeekdaySession: Boolean = false,
+    /** Optional weekend study, explicit opt-in only (D-23). */
+    val weekendStudy: Boolean = false
 )
 
 /**

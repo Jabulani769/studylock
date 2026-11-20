@@ -54,14 +54,17 @@ class EnforcementController(private val context: Context) {
     fun snapshot(sessionActive: Boolean): EnforcementSnapshot {
         val usage = usageAccessGranted()
         val dnd = notificationPolicyAccessGranted()
-        if (usage && !prefs.getBoolean(KEY_HAD_USAGE, false)) {
-            prefs.edit().putBoolean(KEY_HAD_USAGE, true).apply()
+        val hadUsage = prefs.getBoolean(KEY_HAD_USAGE, false)
+        val hadDnd = prefs.getBoolean(KEY_HAD_DND, false)
+        val revocation = sessionActive && ((!usage && hadUsage) || (!dnd && hadDnd))
+        // One apply() instead of up to four on the low-end devices this runs on.
+        if ((usage && !hadUsage) || (dnd && !hadDnd) || revocation) {
+            prefs.edit().apply {
+                if (usage && !hadUsage) putBoolean(KEY_HAD_USAGE, true)
+                if (dnd && !hadDnd) putBoolean(KEY_HAD_DND, true)
+                if (revocation) putBoolean(KEY_INTERRUPTED, true)
+            }.apply()
         }
-        if (dnd && !prefs.getBoolean(KEY_HAD_DND, false)) {
-            prefs.edit().putBoolean(KEY_HAD_DND, true).apply()
-        }
-        if (sessionActive && !usage && prefs.getBoolean(KEY_HAD_USAGE, false)) noteInterruption()
-        if (sessionActive && !dnd && prefs.getBoolean(KEY_HAD_DND, false)) noteInterruption()
         return EnforcementSnapshot(
             usageAccessGranted = usage,
             notificationPolicyAccessGranted = dnd,
@@ -127,10 +130,12 @@ class EnforcementController(private val context: Context) {
         if (packageName == null) return
         val previous = prefs.getString(KEY_LAST_FOREGROUND, null)
         if (previous == packageName) return
-        prefs.edit().putString(KEY_LAST_FOREGROUND, packageName).apply()
-        if (packageName != context.packageName) {
-            prefs.edit().putInt(KEY_LEFT_APP_COUNT, leftAppCount() + 1).apply()
-        }
+        prefs.edit().apply {
+            putString(KEY_LAST_FOREGROUND, packageName)
+            if (packageName != context.packageName) {
+                putInt(KEY_LEFT_APP_COUNT, leftAppCount() + 1)
+            }
+        }.apply()
     }
 
     fun leftAppCount(): Int = prefs.getInt(KEY_LEFT_APP_COUNT, 0)

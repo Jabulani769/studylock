@@ -45,8 +45,10 @@ import java.time.format.TextStyle
 import java.util.Locale
 import studylock.app.NewModuleDraft
 import studylock.app.ui.components.PrimaryActionButton
+import studylock.app.ui.components.ReminderTimeSelector
 import studylock.app.ui.components.SecondaryActionButton
 import studylock.app.ui.components.StudyLockCard
+import studylock.app.reminders.ReminderTime
 import studylock.app.ui.theme.Spacing
 import studylock.domain.Semester
 
@@ -57,7 +59,7 @@ fun OnboardingScreen(
     existingSemester: Semester?,
     initialAvailableDays: Set<Int>,
     busy: Boolean,
-    onFinish: (academicYear: String, label: String, modules: List<NewModuleDraft>, availableDays: Set<Int>) -> Unit,
+    onFinish: (academicYear: String, label: String, modules: List<NewModuleDraft>, availableDays: Set<Int>, reminderStartMinutes: Int) -> Unit,
     onSkip: () -> Unit,
     onCancel: (() -> Unit)? = null
 ) {
@@ -89,6 +91,7 @@ fun OnboardingScreen(
     var selectedDays by rememberSaveable(stateSaver = selectedDaysSaver) {
         mutableStateOf(initialAvailableDays.ifEmpty { (1..5).toSet() })
     }
+    var reminderStartMinutes by rememberSaveable { mutableIntStateOf(18 * 60) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -163,7 +166,9 @@ fun OnboardingScreen(
                         if (day <= 5) {
                             selectedDays = if (selected) selectedDays + day else selectedDays - day
                         }
-                    }
+                    },
+                    reminderStartMinutes = reminderStartMinutes,
+                    onReminderStartMinutesChange = { reminderStartMinutes = it }
                 )
             }
 
@@ -207,7 +212,8 @@ fun OnboardingScreen(
                                 academicYear,
                                 semesterLabel,
                                 moduleDrafts.toList(),
-                                selectedDays.toSet()
+                                selectedDays.toSet(),
+                                reminderStartMinutes
                             )
                         }
                     )
@@ -387,7 +393,9 @@ private fun ModulesStep(
 @Composable
 private fun AvailabilityStep(
     selectedDays: Set<Int>,
-    onToggle: (day: Int, selected: Boolean) -> Unit
+    onToggle: (day: Int, selected: Boolean) -> Unit,
+    reminderStartMinutes: Int,
+    onReminderStartMinutesChange: (Int) -> Unit
 ) {
     Text(
         text = "When can you usually study?",
@@ -441,6 +449,24 @@ private fun AvailabilityStep(
             }
         }
     }
+    Spacer(Modifier.height(Spacing.lg))
+    Text(
+        text = "When should we remind you?",
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+    Spacer(Modifier.height(Spacing.xs))
+    Text(
+        text = "A gentle weekday reminder at ${ReminderTime.format(reminderStartMinutes)}. " +
+            "You can change or turn it off in Settings.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(Spacing.md))
+    ReminderTimeSelector(
+        minutes = reminderStartMinutes,
+        onMinutesChange = onReminderStartMinutesChange
+    )
 }
 
 private fun dayName(day: Int): String =

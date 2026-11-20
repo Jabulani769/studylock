@@ -17,6 +17,8 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -37,6 +40,7 @@ import java.util.Locale
 import java.util.UUID
 import studylock.app.AppUiState
 import studylock.app.ExamWithSections
+import studylock.app.R
 import studylock.app.StudyExamType
 import studylock.app.ui.components.EmptyState
 import studylock.app.ui.components.PrimaryActionButton
@@ -139,14 +143,14 @@ fun ExamsScreen(
     if (examToDelete != null) {
         AlertDialog(
             onDismissRequest = { examToDelete = null },
-            title = { Text("Remove this exam?") },
+            title = { Text("Delete this exam?") },
             text = { Text("The stored exam structure and date will be removed from your plan.") },
             confirmButton = {
                 TextButton(onClick = {
                     onDeleteExam(examToDelete!!.exam.id)
                     examToDelete = null
                 }) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                    Text("Confirm", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = { TextButton(onClick = { examToDelete = null }) { Text("Cancel") } }
@@ -201,8 +205,12 @@ private fun ExamCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        TextButton(onClick = onRemove) {
-            Text("Remove exam", color = MaterialTheme.colorScheme.error)
+        IconButton(onClick = onRemove) {
+            Icon(
+                painter = painterResource(R.drawable.ic_remove),
+                contentDescription = "Remove exam",
+                tint = MaterialTheme.colorScheme.error
+            )
         }
     }
 }

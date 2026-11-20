@@ -1,5 +1,6 @@
 package studylock.app
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.time.DayOfWeek
@@ -9,6 +10,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,10 +23,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import studylock.academic.engine.RedesignOption
+import studylock.academic.engine.RedesignPlanner
+import studylock.academic.engine.RedesignProposal
 import studylock.academic.engine.ScheduleRequest
 import studylock.academic.engine.ScheduledAssignment
+import studylock.academic.engine.SchedulerConfig
+import studylock.app.documents.DocumentMeta
+import studylock.app.documents.DocumentStore
 import studylock.app.enforcement.EnforcementController
+import studylock.app.profile.ProfilePhotoStore
+import studylock.app.profile.UserProfile
+import studylock.app.reminders.ReminderScheduler
+import studylock.app.settings.PlanningMode
+import studylock.app.settings.RedesignChoice
 import studylock.app.settings.SettingsRepository
+import studylock.app.settings.ThemePreference
 import studylock.common.clock.StudyClock
 import studylock.domain.AcademicRepository
 import studylock.domain.CalendarException
@@ -62,7 +77,10 @@ data class TodayPlan(
     val module: Module,
     val topic: Topic,
     val requiredMinutes: Int,
-    val explanation: String
+    val explanation: String,
+    /** Which accepted extra-capacity slot this is, when more than one exists. */
+    val slot: Int = 0,
+    val slotsToday: Int = 1
 )
 
 data class NextAssignment(
@@ -92,6 +110,14 @@ data class AppUiState(
     val isLoading: Boolean = true,
     val busy: Boolean = false,
     val onboardingCompleted: Boolean = false,
+    val permissionsPrompted: Boolean = false,
+    val themePreference: ThemePreference = ThemePreference.SYSTEM,
+    val reminderEnabled: Boolean = false,
+    val reminderStartMinutes: Int = 18 * 60,
+    val planningMode: PlanningMode = PlanningMode.RECOMMENDED,
+    val redesignChoice: RedesignChoice = RedesignChoice.NONE,
+    val redesignProposal: RedesignProposal? = null,
+    val profile: UserProfile = UserProfile(),
     val semester: Semester? = null,
     val modules: List<ModuleWithTopics> = emptyList(),
     val availability: List<StudyAvailability> = emptyList(),
@@ -106,6 +132,7 @@ data class AppUiState(
     val lastSummary: FocusSession? = null,
     val summaryInterruptions: List<SessionInterruption> = emptyList(),
     val backups: List<String> = emptyList(),
+    val documents: List<DocumentMeta> = emptyList(),
     val learningEvents: List<LearningEvent> = emptyList(),
     val pendingTopicMatches: List<LearningTopicMatch> = emptyList(),
     val enforcementState: EnforcementState = EnforcementState.PERMISSION_REQUIRED,
@@ -140,6 +167,9 @@ class AppViewModel(
     private val focusStateMachine: FocusStateMachine,
     private val scheduler: studylock.academic.engine.AcademicScheduler,
     private val settingsRepository: SettingsRepository,
+    private val profilePhotoStore: ProfilePhotoStore,
+    private val reminderScheduler: ReminderScheduler,
+    private val documentStore: DocumentStore,
     private val backupRepository: studylock.data.local.BackupRepository,
     private val enforcement: EnforcementController,
     private val clock: StudyClock
@@ -164,12 +194,131 @@ class AppViewModel(
                 settingsRepository.onboardingCompleted.first()
             }.getOrDefault(false)
             _uiState.update { it.copy(onboardingCompleted = onboardingCompleted) }
+            val permissionsPrompted = runCatching {
+                settingsRepository.permissionsPrompted.first()
+            }.getOrDefault(false)
+            _uiState.update { it.copy(permissionsPrompted = permissionsPrompted) }
+            // refreshInternal moves the data work off the main thread itself.
             refreshInternal()
+        }
+        viewModelScope.launch {
+            settingsRepository.themePreference.collect { preference ->
+                _uiState.update { it.copy(themePreference = preference) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.reminderEnabled.collect { enabled ->
+                _uiState.update { it.copy(reminderEnabled = enabled) }
+                reminderScheduler.reschedule(enabled, _uiState.value.reminderStartMinutes)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.reminderStartMinutes.collect { minutes ->
+                _uiState.update { it.copy(reminderStartMinutes = minutes) }
+                reminderScheduler.reschedule(_uiState.value.reminderEnabled, minutes)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.planningMode.collect { mode ->
+                val changed = _uiState.value.planningMode != mode
+                _uiState.update { it.copy(planningMode = mode) }
+                if (changed) refreshInternal()
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.redesignChoice.collect { choice ->
+                val changed = _uiState.value.redesignChoice != choice
+                _uiState.update { it.copy(redesignChoice = choice) }
+                if (changed) refreshInternal()
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.profileName.collect { name ->
+                _uiState.update { it.copy(profile = it.profile.copy(displayName = name)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.profilePhotoName.collect { fileName ->
+                _uiState.update { it.copy(profile = it.profile.copy(photoFileName = fileName)) }
+            }
         }
     }
 
     fun refresh() {
         viewModelScope.launch { refreshInternal() }
+    }
+
+    fun setThemePreference(preference: ThemePreference) {
+        viewModelScope.launch { settingsRepository.setThemePreference(preference) }
+    }
+
+    fun setReminderEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setReminderEnabled(enabled) }
+    }
+
+    fun setReminderStartMinutes(minutes: Int) {
+        viewModelScope.launch { settingsRepository.setReminderStartMinutes(minutes) }
+    }
+
+    fun setPlanningMode(mode: PlanningMode) {
+        viewModelScope.launch { settingsRepository.setPlanningMode(mode) }
+    }
+
+    fun setRedesignChoice(choice: RedesignChoice) {
+        viewModelScope.launch { settingsRepository.setRedesignChoice(choice) }
+    }
+
+    fun importDocument(uri: Uri, topicId: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            when (val result = documentStore.import(uri, topicId)) {
+                is DocumentStore.ImportResult.Success -> {
+                    setMessage("Added ${result.meta.displayName} to your study materials.")
+                    refreshInternal()
+                }
+                DocumentStore.ImportResult.Unsupported ->
+                    setMessage("Use a PDF, image or plain text file.")
+                DocumentStore.ImportResult.TooLarge ->
+                    setMessage("That file is too large to keep on this phone.")
+                DocumentStore.ImportResult.Failed ->
+                    setMessage("That file could not be imported.")
+            }
+        }
+    }
+
+    fun deleteDocument(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            documentStore.delete(id)
+            refreshInternal()
+        }
+    }
+
+    fun saveDocumentPosition(id: String, position: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            documentStore.savePosition(id, position)
+        }
+    }
+
+    fun setProfileName(name: String) {
+        viewModelScope.launch { settingsRepository.setProfileName(name) }
+    }
+
+    fun setProfilePhoto(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val fileName = profilePhotoStore.save(uri)
+            if (fileName == null) {
+                setMessage("That image could not be imported.")
+                return@launch
+            }
+            settingsRepository.setProfilePhotoName(fileName)
+        }
+    }
+
+    fun clearProfilePhoto() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val old = _uiState.value.profile.photoFileName
+            settingsRepository.setProfilePhotoName(null)
+            profilePhotoStore.delete(old)
+        }
     }
 
     fun clearMessage() {
@@ -180,7 +329,8 @@ class AppViewModel(
         academicYear: String,
         label: String,
         modules: List<NewModuleDraft>,
-        availableDays: Set<Int>
+        availableDays: Set<Int>,
+        reminderStartMinutes: Int = 18 * 60
     ) {
         viewModelScope.launch {
             val year = academicYear.trim()
@@ -229,6 +379,9 @@ class AppViewModel(
                     )
                 }
                 academicRepository.replaceAvailability(semester.id, availability)
+                settingsRepository.setReminderStartMinutes(reminderStartMinutes)
+                settingsRepository.setReminderEnabled(true)
+                reminderScheduler.reschedule(true, reminderStartMinutes)
                 // Refresh before flipping the onboarding flag so the first frame
                 // of the main shell already has the saved semester and modules.
                 refreshInternal()
@@ -240,6 +393,13 @@ class AppViewModel(
                     it.copy(busy = false, message = "Could not save your setup. Try again.")
                 }
             }
+        }
+    }
+
+    fun finishPermissionsPrompt() {
+        viewModelScope.launch {
+            settingsRepository.setPermissionsPrompted(true)
+            _uiState.update { it.copy(permissionsPrompted = true) }
         }
     }
 
@@ -800,7 +960,10 @@ class AppViewModel(
         return closed
     }
 
-    private suspend fun refreshInternal() {
+    /** All callers — init, user actions, resume and ticker completion — land on IO. */
+    private suspend fun refreshInternal() = withContext(Dispatchers.IO) { refreshOnIo() }
+
+    private suspend fun refreshOnIo() {
         try {
             val semester = academicRepository.getSemester()
             // Independent reads run concurrently so navigation and refresh do
@@ -812,6 +975,7 @@ class AppViewModel(
             val matchesDeferred = async { academicRepository.getUnconfirmedTopicMatches() }
             val historyDeferred = async { sessionRepository.getHistory(50) }
             val backupsDeferred = async { backupRepository.listBackups() }
+            val documentsDeferred = async { documentStore.list() }
             val currentDeferred = async { sessionRepository.getCurrent() }
             val availabilityDeferred = async {
                 semester?.let { academicRepository.getAvailability(it.id) } ?: emptyList()
@@ -861,6 +1025,7 @@ class AppViewModel(
             val learningEvents = eventsDeferred.await()
             val pendingTopicMatches = matchesDeferred.await()
             val backups = backupsDeferred.await()
+            val documents = documentsDeferred.await()
             var activeSession = currentDeferred.await()
             var summary = _uiState.value.lastSummary
 
@@ -886,13 +1051,46 @@ class AppViewModel(
 
             val zone = semesterZone(semester)
             val today = clock.instant.atZone(zone).toLocalDate()
+            val planningMode = _uiState.value.planningMode
+            val redesignChoice = _uiState.value.redesignChoice
+            val config = SchedulerConfig(
+                routineMode = planningMode == PlanningMode.ROUTINE,
+                useCompressedPlan = redesignChoice != RedesignChoice.NONE,
+                extraWeekdaySession = redesignChoice in setOf(
+                    RedesignChoice.EXTRA_WEEKDAY, RedesignChoice.WEEKEND_AND_EXTRA
+                ),
+                weekendStudy = redesignChoice == RedesignChoice.WEEKEND_AND_EXTRA
+            )
             val todayState = when {
                 semester == null -> TodayState.NeedsSemester
                 activeSession != null -> TodayState.Active(activeSession)
                 else -> buildTodayState(
                     semester, moduleViews, availability, today, learningEvents,
-                    exams.map { it.exam }, calendarExceptions
+                    exams.map { it.exam }, calendarExceptions, config, history
                 )
+            }
+
+            // A redesign proposal only makes sense for the recommended plan;
+            // routine users keep their own one-session-a-day approach.
+            val redesignProposal = if (semester != null && planningMode == PlanningMode.RECOMMENDED) {
+                val covered = learningEvents
+                    .filter { it.eventType in setOf("STUDY", "STUDIED", "UNDERSTOOD", "MASTERED") }
+                    .map { it.topicId }
+                    .toSet()
+                val remaining = moduleViews.flatMap { it.topics }
+                    .filter { it.lifecycleStatus == "ACTIVE" && it.id !in covered }
+                RedesignPlanner.propose(
+                    startDate = today,
+                    endDate = today.plusDays(PLAN_HORIZON_DAYS),
+                    availability = availability.ifEmpty { defaultAvailability(semester.id) },
+                    remainingTopics = remaining,
+                    calendarExceptions = calendarExceptions,
+                    exams = exams.map { it.exam },
+                    zoneId = zone,
+                    config = config
+                )
+            } else {
+                null
             }
 
             _uiState.update { current ->
@@ -905,10 +1103,12 @@ class AppViewModel(
                     exams = exams,
                     history = history,
                     backups = backups,
+                    documents = documents,
                     learningEvents = learningEvents,
                     pendingTopicMatches = pendingTopicMatches,
                     activeSession = activeSession,
                     today = todayState,
+                    redesignProposal = redesignProposal,
                     todayDate = today,
                     timezone = zone.id,
                     timestampMillis = clock.millis,
@@ -947,11 +1147,14 @@ class AppViewModel(
         today: LocalDate,
         learningEvents: List<LearningEvent>,
         exams: List<Exam> = emptyList(),
-        calendarExceptions: List<CalendarException> = emptyList()
+        calendarExceptions: List<CalendarException> = emptyList(),
+        config: SchedulerConfig = SchedulerConfig(),
+        history: List<FocusSession> = emptyList()
     ): TodayState {
         if (modules.isEmpty()) return TodayState.NeedsModules
         if (modules.all { it.topics.isEmpty() }) return TodayState.NeedsTopics
 
+        val zone = semesterZone(semester)
         val startDate = semester.startDate
         if (startDate != null && today.isBefore(startDate)) {
             return TodayState.Unavailable(
@@ -972,7 +1175,8 @@ class AppViewModel(
                 startDate = today,
                 endDate = today.plusDays(PLAN_HORIZON_DAYS),
                 learningEvents = learningEvents,
-                exams = exams
+                exams = exams,
+                config = config
             )
         )
         val assignments = result.assignments
@@ -992,8 +1196,21 @@ class AppViewModel(
             return TodayState.Unavailable("No session is scheduled today.", next)
         }
 
-        val assignment = assignments.firstOrNull { it.date == today.toString() }
-            ?: return TodayState.Unavailable("No study assignment for today.", next)
+        val todayAssignments = assignments.filter { it.date == today.toString() }
+        val completedTodayTopics = history
+            .filter { session ->
+                session.state == SessionState.COMPLETED &&
+                    session.startTime?.atZone(zone)?.toLocalDate() == today
+            }
+            .mapNotNull { it.topicId }
+            .toSet()
+        val assignmentIndex = todayAssignments.indexOfFirst { candidate ->
+            candidate.topicId == null || candidate.topicId !in completedTodayTopics
+        }
+        if (assignmentIndex < 0) {
+            return TodayState.Unavailable("No study assignment left for today.", next)
+        }
+        val assignment = todayAssignments[assignmentIndex]
         val module = modules.firstOrNull { it.module.id == assignment.moduleId }?.module
         val topic = assignment.topicId?.let { topicId ->
             modules.flatMap { it.topics }.firstOrNull { it.id == topicId }
@@ -1007,7 +1224,9 @@ class AppViewModel(
                 module = module,
                 topic = topic,
                 requiredMinutes = assignment.durationMinutes,
-                explanation = assignment.explanation
+                explanation = assignment.explanation,
+                slot = assignmentIndex + 1,
+                slotsToday = todayAssignments.size
             ),
             next = next
         )

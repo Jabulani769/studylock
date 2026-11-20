@@ -60,7 +60,10 @@ import studylock.app.AppViewModel
 import studylock.app.AppViewModelFactory
 import studylock.app.ui.screens.academics.AcademicsScreen
 import studylock.app.ui.screens.academics.ModuleDetailScreen
+import studylock.app.ui.screens.documents.DocumentReaderScreen
+import studylock.app.ui.screens.documents.DocumentsScreen
 import studylock.app.ui.screens.exams.ExamsScreen
+import studylock.app.ui.screens.onboarding.FirstRunPermissionsScreen
 import studylock.app.ui.screens.onboarding.OnboardingScreen
 import studylock.app.ui.screens.progress.ProgressScreen
 import studylock.app.ui.screens.session.SessionScreen
@@ -106,17 +109,25 @@ fun StudyLockApp(container: AppContainer) {
 
     when {
         state.isLoading -> LoadingScreen()
+        !state.permissionsPrompted -> FirstRunPermissionsScreen(
+            enforcement = container.enforcement,
+            onContinue = viewModel::finishPermissionsPrompt
+        )
         !state.onboardingCompleted && state.semester == null -> OnboardingScreen(
             existingSemester = state.semester,
             initialAvailableDays = state.initialAvailableDays(),
             busy = state.busy,
-            onFinish = viewModel::finishOnboarding,
+            onFinish = { year, label, modules, days, reminderMinutes ->
+                viewModel.finishOnboarding(year, label, modules, days, reminderMinutes)
+            },
             onSkip = viewModel::skipOnboarding
         )
         else -> MainScaffold(
             state = state,
             viewModel = viewModel,
-            snackbarHostState = snackbarHostState
+            snackbarHostState = snackbarHostState,
+            photoStore = container.profilePhotoStore,
+            documentStore = container.documentStore
         )
     }
 }
@@ -126,7 +137,9 @@ fun StudyLockApp(container: AppContainer) {
 private fun MainScaffold(
     state: AppUiState,
     viewModel: AppViewModel,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    photoStore: studylock.app.profile.ProfilePhotoStore,
+    documentStore: studylock.app.documents.DocumentStore
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -158,12 +171,14 @@ private fun MainScaffold(
         Routes.PROGRESS -> "Progress"
         Routes.SETTINGS -> "Settings"
         Routes.SUMMARY -> "Session summary"
+        Routes.DOCUMENTS -> "Study materials"
+        Routes.DOCUMENT_READER -> "Document"
         Routes.ONBOARDING -> "Setup"
         else -> "StudyLock"
     }
 
     val onBack: (() -> Unit)? = when (currentRoute) {
-        Routes.MODULE_DETAIL, Routes.ONBOARDING -> {
+        Routes.MODULE_DETAIL, Routes.ONBOARDING, Routes.DOCUMENT_READER -> {
             { navController.popBackStack() }
         }
         Routes.SUMMARY -> {
@@ -290,8 +305,10 @@ private fun MainScaffold(
                     onResumeSession = { navController.navigate(Routes.SESSION) },
                     onOpenSetup = { navController.navigate(Routes.ONBOARDING) },
                     onOpenAcademics = { navigateToTab(Routes.ACADEMICS) },
+                    onOpenSettings = { navigateToTab(Routes.SETTINGS) },
                     onOpenSummary = { navController.navigate(Routes.SUMMARY) },
-                    clockTick = viewModel.clockTick
+                    clockTick = viewModel.clockTick,
+                    photoStore = photoStore
                 )
             }
 
@@ -325,7 +342,13 @@ private fun MainScaffold(
                         onAddTopic = { title -> viewModel.addTopic(id, title) },
                         onImportOutline = { text -> viewModel.importOutline(id, text) },
                         onRenameTopic = viewModel::renameTopic,
-                        onRemoveTopic = viewModel::removeTopic
+                        onRemoveTopic = viewModel::removeTopic,
+                        onAddTopicDocument = { topicId, uri ->
+                            viewModel.importDocument(uri, topicId.toString())
+                        },
+                        onOpenTopicDocument = { documentId ->
+                            navController.navigate(Routes.documentReader(documentId))
+                        }
                     )
                 }
             }
@@ -358,7 +381,39 @@ private fun MainScaffold(
                     onOpenSetup = { navController.navigate(Routes.ONBOARDING) },
                     onOpenUsageAccess = viewModel::openUsageAccessSettings,
                     onOpenNotificationPolicy = viewModel::openNotificationPolicySettings,
-                    onAcknowledgeInterruption = viewModel::acknowledgeEnforcementInterruption
+                    onAcknowledgeInterruption = viewModel::acknowledgeEnforcementInterruption,
+                    onSetThemePreference = viewModel::setThemePreference,
+                    onSetReminderEnabled = viewModel::setReminderEnabled,
+                    onSetReminderStartMinutes = viewModel::setReminderStartMinutes,
+                    onSetPlanningMode = viewModel::setPlanningMode,
+                    onSetRedesignChoice = viewModel::setRedesignChoice,
+                    onSetProfileName = viewModel::setProfileName,
+                    onPickProfilePhoto = viewModel::setProfilePhoto,
+                    onClearProfilePhoto = viewModel::clearProfilePhoto,
+                    onOpenDocuments = { navController.navigate(Routes.DOCUMENTS) },
+                    photoStore = photoStore
+                )
+            }
+
+            composable(Routes.DOCUMENTS) {
+                DocumentsScreen(
+                    state = state,
+                    onImport = viewModel::importDocument,
+                    onOpen = { id -> navController.navigate(Routes.documentReader(id)) },
+                    onDelete = viewModel::deleteDocument
+                )
+            }
+
+            composable(
+                route = Routes.DOCUMENT_READER,
+                arguments = listOf(navArgument("documentId") { type = NavType.StringType })
+            ) { entry ->
+                val documentId = entry.arguments?.getString("documentId").orEmpty()
+                DocumentReaderScreen(
+                    documentId = documentId,
+                    state = state,
+                    store = documentStore,
+                    onPositionChanged = viewModel::saveDocumentPosition
                 )
             }
 
@@ -395,8 +450,8 @@ private fun MainScaffold(
                     existingSemester = state.semester,
                     initialAvailableDays = state.initialAvailableDays(),
                     busy = state.busy,
-                    onFinish = { year, label, modules, days ->
-                        viewModel.finishOnboarding(year, label, modules, days)
+                    onFinish = { year, label, modules, days, reminderMinutes ->
+                        viewModel.finishOnboarding(year, label, modules, days, reminderMinutes)
                         navController.navigate(Routes.TODAY) {
                             popUpTo(Routes.ONBOARDING) { inclusive = true }
                             launchSingleTop = true

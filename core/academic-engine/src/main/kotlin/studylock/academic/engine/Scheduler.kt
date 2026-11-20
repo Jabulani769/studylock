@@ -96,9 +96,9 @@ class DefaultAcademicScheduler : AcademicScheduler {
         val moduleById = request.modules.associateBy { it.id }
 
         val reliableExams = request.exams.filter { isReliable(it) }
-        val eligibleDates = CapacityCalculator.eligibleStudyDates(
+        val slots = CapacityCalculator.studySlots(
             request.startDate, request.endDate, request.availability,
-            request.calendarExceptions, request.exams, zoneId, config.examBlockWindowDays
+            request.calendarExceptions, request.exams, zoneId, config
         )
 
         // History: topics with explicit learning evidence or a completed assignment.
@@ -158,7 +158,8 @@ class DefaultAcademicScheduler : AcademicScheduler {
 
         val assignments = mutableListOf<ScheduledAssignment>()
         val assignmentsPerModule = mutableMapOf<java.util.UUID, Int>()
-        for (date in eligibleDates) {
+        for (slot in slots) {
+            val date = slot.date
             val eligible = eligibleNewTopics(
                 effectivePhase, remainingNewTopics, firstHalfIds, coveredTopicIds
             )
@@ -263,6 +264,9 @@ class DefaultAcademicScheduler : AcademicScheduler {
         covered: Set<java.util.UUID>,
         firstHalfIds: Set<java.util.UUID>
     ): AcademicPhase {
+        // "Stick to my routine": no exam-driven phasing, still automatic topic
+        // choice and one continuous session per available day.
+        if (config.routineMode) return AcademicPhase.ROLLING
         fun datesOf(typeToken: String) = reliableExams
             .filter { it.dateTime != null && it.examType.contains(typeToken, ignoreCase = true) }
             .mapNotNull { it.dateTime?.toLocalDate() }

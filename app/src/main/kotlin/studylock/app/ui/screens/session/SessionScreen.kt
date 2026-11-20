@@ -48,12 +48,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import studylock.app.AppUiState
 import studylock.app.SessionTimerService
 import studylock.app.asClockString
@@ -63,6 +57,7 @@ import studylock.app.ui.components.PrimaryActionButton
 import studylock.app.ui.components.SecondaryActionButton
 import studylock.app.ui.components.StatusChip
 import studylock.app.ui.theme.Spacing
+import studylock.focus.FocusSession
 import studylock.focus.SessionState
 
 @Composable
@@ -75,8 +70,8 @@ fun SessionScreen(
     onOpenSummary: () -> Unit,
     clockTick: StateFlow<Pair<Long, Long>>
 ) {
-    // Localised one-second tick: only the countdown recomposes, not the app.
-    val tick by clockTick.collectAsStateWithLifecycle()
+    // The tick is collected inside the countdown card only; the buttons and
+    // static explanations are not recomposed every second during a session.
     var showAttentionReset by remember { mutableStateOf(false) }
     var exitStep by remember { mutableIntStateOf(0) }
     var emergencyStep by remember { mutableIntStateOf(0) }
@@ -89,22 +84,10 @@ fun SessionScreen(
         (seed % 7 + 3) to (seed % 5 + 3)
     }
     val context = LocalContext.current
-    val notificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
 
     LaunchedEffect(session?.id, session?.state) {
         when (session?.state) {
             SessionState.ACTIVE -> {
-                if (
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.POST_NOTIFICATIONS
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
                 SessionTimerService.start(context)
             }
             SessionState.PAUSED -> SessionTimerService.stop(context)
@@ -133,16 +116,7 @@ fun SessionScreen(
 
             val module = state.module(session.moduleId)
             val topic = state.topic(session.moduleId, session.topicId)
-            val nowMillis = if (tick.first == 0L) state.timestampMillis else tick.first
-            val monotonicMillis = if (tick.second == 0L) state.monotonicMillis else tick.second
-            val remaining = session.remainingSeconds(nowMillis, monotonicMillis)
-            val elapsed = session.targetMinutes * 60L - remaining
-            val progress = if (session.targetMinutes > 0) {
-                (elapsed.toFloat() / (session.targetMinutes * 60L)).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-    
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -178,68 +152,12 @@ fun SessionScreen(
                 }
     
                 Spacer(Modifier.height(Spacing.xl))
-                Card(
-                    modifier = Modifier.fillMaxWidth().height(250.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = colorResource(R.color.sl_color_media)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .offset(x = 24.dp, y = 28.dp)
-                                .rotate(-16f)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(colorResource(R.color.sl_color_accent_primary))
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .offset(x = 276.dp, y = 34.dp)
-                                .clip(CircleShape)
-                                .background(colorResource(R.color.sl_color_hero_amber))
-                        )
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Spacer(Modifier.height(Spacing.lg))
-                            Surface(shape = CircleShape, color = Color.White) {
-                                Box(
-                                    modifier = Modifier.size(68.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "▶",
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = colorResource(R.color.sl_color_media)
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(Spacing.md))
-                            Text(
-                                text = remaining.asClockString(),
-                                style = MaterialTheme.typography.displaySmall,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "remaining of ${session.targetMinutes} minutes",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.75f)
-                            )
-                            Spacer(Modifier.height(Spacing.md))
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),
-                                color = Color.White,
-                                trackColor = Color.White.copy(alpha = 0.3f)
-                            )
-                        }
-                    }
-                }
+                SessionCountdownCard(
+                    session = session,
+                    clockTick = clockTick,
+                    fallbackWallMillis = state.timestampMillis,
+                    fallbackMonotonicMillis = state.monotonicMillis
+                )
                 Spacer(Modifier.height(Spacing.xl))
     
                 if (session.state == SessionState.PAUSED) {
@@ -443,5 +361,91 @@ fun SessionScreen(
                 TextButton(onClick = { emergencyStep = 0 }) { Text("Cancel") }
             }
         )
+    }
+}
+
+/**
+ * The one-second tick is collected here, so only this card recomposes while
+ * the 120-minute session runs. The rest of the screen stays composed.
+ */
+@Composable
+private fun SessionCountdownCard(
+    session: FocusSession,
+    clockTick: StateFlow<Pair<Long, Long>>,
+    fallbackWallMillis: Long,
+    fallbackMonotonicMillis: Long
+) {
+    val tick by clockTick.collectAsStateWithLifecycle()
+    val nowMillis = if (tick.first == 0L) fallbackWallMillis else tick.first
+    val monotonicMillis = if (tick.second == 0L) fallbackMonotonicMillis else tick.second
+    val remaining = session.remainingSeconds(nowMillis, monotonicMillis)
+    val elapsed = session.targetMinutes * 60L - remaining
+    val progress = if (session.targetMinutes > 0) {
+        (elapsed.toFloat() / (session.targetMinutes * 60L)).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().height(250.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = colorResource(R.color.sl_color_media)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .offset(x = 24.dp, y = 28.dp)
+                    .rotate(-16f)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(colorResource(R.color.sl_color_accent_primary))
+            )
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .offset(x = 276.dp, y = 34.dp)
+                    .clip(CircleShape)
+                    .background(colorResource(R.color.sl_color_hero_amber))
+            )
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(Spacing.lg))
+                Surface(shape = CircleShape, color = Color.White) {
+                    Box(
+                        modifier = Modifier.size(68.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "▶",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = colorResource(R.color.sl_color_media)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    text = remaining.asClockString(),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = Color.White
+                )
+                Text(
+                    text = "remaining of ${session.targetMinutes} minutes",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.75f)
+                )
+                Spacer(Modifier.height(Spacing.md))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.3f)
+                )
+            }
+        }
     }
 }

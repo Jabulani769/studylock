@@ -14,7 +14,9 @@ import studylock.focus.SessionState
 class SessionRepositoryImpl(
     private val sessionDao: SessionDao,
     private val interruptionDao: SessionInterruptionDao,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+    // Room's suspending DAO calls already dispatch to its query executor;
+    // IO keeps blocking database work off the CPU-bound Default pool.
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : SessionRepository {
 
     override suspend fun save(session: FocusSession) = withContext(dispatcher) {

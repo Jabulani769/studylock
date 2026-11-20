@@ -15,6 +15,9 @@ class AppViewModelFactory(
             focusStateMachine = container.focusStateMachine,
             scheduler = container.scheduler,
             settingsRepository = container.settingsRepository,
+            profilePhotoStore = container.profilePhotoStore,
+            reminderScheduler = container.reminderScheduler,
+            documentStore = container.documentStore,
             backupRepository = container.backupRepository,
             enforcement = container.enforcement,
             clock = container.clock

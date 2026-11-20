@@ -1,5 +1,8 @@
 package studylock.app.ui.screens.academics
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,10 +19,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -34,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import studylock.app.R
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,6 +52,7 @@ import java.util.Locale
 import java.util.UUID
 import studylock.app.AppUiState
 import studylock.app.ModuleWithTopics
+import studylock.app.documents.DocumentMeta
 import studylock.app.parseOutline
 import studylock.app.ui.components.DetailRow
 import studylock.app.ui.components.EmptyState
@@ -237,9 +247,9 @@ fun AcademicsScreen(
     }
     if (removingModule != null) {
         ConfirmRemoveDialog(
-            title = "Remove ${removingModule!!.module.name}?",
+            title = "Delete ${removingModule!!.module.name}?",
             body = "The module is hidden from your plan. Its topics, topic history and session records are kept on this phone.",
-            confirmLabel = "Remove module",
+            confirmLabel = "Confirm",
             onDismiss = { removingModule = null },
             onConfirm = {
                 onRemoveModule(removingModule!!.module.id)
@@ -256,8 +266,18 @@ fun ModuleDetailScreen(
     onAddTopic: (title: String) -> Unit,
     onImportOutline: (String) -> Unit,
     onRenameTopic: (UUID, String) -> Unit,
-    onRemoveTopic: (UUID) -> Unit
+    onRemoveTopic: (UUID) -> Unit,
+    onAddTopicDocument: (UUID, Uri) -> Unit,
+    onOpenTopicDocument: (String) -> Unit
 ) {
+    var pendingDocumentTopic by remember { mutableStateOf<UUID?>(null) }
+    val documentPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        val topicId = pendingDocumentTopic
+        if (uri != null && topicId != null) onAddTopicDocument(topicId, uri)
+        pendingDocumentTopic = null
+    }
     var showAddTopic by remember { mutableStateOf(false) }
     var showImportOutline by remember { mutableStateOf(false) }
     var editingTopic by remember { mutableStateOf<Topic?>(null) }
@@ -347,7 +367,13 @@ fun ModuleDetailScreen(
                     index = index,
                     topic = topic,
                     onEdit = { editingTopic = topic },
-                    onRemove = { removingTopic = topic }
+                    onRemove = { removingTopic = topic },
+                    onAddDocument = {
+                        pendingDocumentTopic = topic.id
+                        documentPicker.launch("*/*")
+                    },
+                    documents = state.documents.filter { it.topicId == topic.id.toString() },
+                    onOpenDocument = onOpenTopicDocument
                 )
                 if (index != moduleWithTopics.topics.lastIndex) {
                     Spacer(Modifier.height(Spacing.sm))
@@ -400,9 +426,9 @@ fun ModuleDetailScreen(
     }
     if (removingTopic != null) {
         ConfirmRemoveDialog(
-            title = "Remove ${removingTopic!!.title}?",
+            title = "Delete ${removingTopic!!.title}?",
             body = "The topic is marked as removed and hidden from your plan. Past learning records and answers are kept on this phone.",
-            confirmLabel = "Remove topic",
+            confirmLabel = "Confirm",
             onDismiss = { removingTopic = null },
             onConfirm = {
                 onRemoveTopic(removingTopic!!.id)
@@ -446,10 +472,14 @@ private fun ModuleCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(Spacing.sm))
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onEdit) { Text("Edit") }
-            TextButton(onClick = onRemove) {
-                Text("Remove", color = MaterialTheme.colorScheme.error)
+            IconButton(onClick = onRemove) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_remove),
+                    contentDescription = "Remove module",
+                    tint = MaterialTheme.colorScheme.error
+                )
             }
         }
     }
@@ -460,7 +490,10 @@ private fun TopicRow(
     index: Int,
     topic: Topic,
     onEdit: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onAddDocument: () -> Unit,
+    documents: List<DocumentMeta>,
+    onOpenDocument: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -468,8 +501,9 @@ private fun TopicRow(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         shape = MaterialTheme.shapes.medium
     ) {
+        Column(modifier = Modifier.padding(Spacing.md).fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(Spacing.md).fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -498,12 +532,48 @@ private fun TopicRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column {
-                TextButton(onClick = onEdit) { Text("Edit") }
-                TextButton(onClick = onRemove) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onAddDocument, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "Add document for this topic",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit topic",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_remove),
+                        contentDescription = "Remove topic",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
+        }
+        if (documents.isNotEmpty()) {
+            Spacer(Modifier.height(Spacing.xs))
+            HorizontalDivider()
+            documents.forEach { document ->
+                Text(
+                    text = document.displayName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenDocument(document.id) }
+                        .padding(vertical = Spacing.xs)
+                )
+            }
+        }
         }
     }
 }

@@ -22,7 +22,8 @@ object CapacityCalculator {
         calendarExceptions: List<CalendarException> = emptyList(),
         exams: List<Exam> = emptyList(),
         zoneId: ZoneId = ZoneId.of("UTC"),
-        examBlockWindowDays: Int = 0
+        examBlockWindowDays: Int = 0,
+        includeWeekends: Boolean = false
     ): List<LocalDate> {
         val unavailableDays = availability.filter { !it.available }.map { it.dayOfWeek }.toSet()
         val availableDays = availability.map { it.dayOfWeek }.toSet()
@@ -40,17 +41,47 @@ object CapacityCalculator {
         while (!date.isAfter(endDate)) {
             val dayOfWeek = date.dayOfWeek.value // 1=Mon .. 7=Sun
             val isWeekend = dayOfWeek >= 6
-            val isAvailable = if (availability.isEmpty()) {
+            // Weekend study is only possible with the explicit D-23 opt-in.
+            val isAvailable = if (isWeekend || availability.isEmpty()) {
                 true
             } else {
                 dayOfWeek in availableDays && dayOfWeek !in unavailableDays
             }
-            if (!isWeekend && isAvailable && date !in exceptionDates && date !in examDates) {
+            if ((!isWeekend || includeWeekends) && isAvailable &&
+                date !in exceptionDates && date !in examDates
+            ) {
                 dates.add(date)
             }
             date = date.plusDays(1)
         }
         return dates
+    }
+
+    /**
+     * One slot is one session. A second weekday slot and weekend slots exist
+     * only when the user has explicitly accepted that part of the redesign.
+     */
+    fun studySlots(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        availability: List<StudyAvailability>,
+        calendarExceptions: List<CalendarException> = emptyList(),
+        exams: List<Exam> = emptyList(),
+        zoneId: ZoneId = ZoneId.of("UTC"),
+        config: SchedulerConfig = SchedulerConfig()
+    ): List<StudySlot> {
+        val dates = eligibleStudyDates(
+            startDate, endDate, availability, calendarExceptions, exams,
+            zoneId, config.examBlockWindowDays, config.weekendStudy
+        )
+        val slots = mutableListOf<StudySlot>()
+        dates.forEach { date ->
+            slots.add(StudySlot(date, 0))
+            if (config.extraWeekdaySession && date.dayOfWeek.value <= 5) {
+                slots.add(StudySlot(date, 1))
+            }
+        }
+        return slots
     }
 
     /**
@@ -67,11 +98,10 @@ object CapacityCalculator {
         config: SchedulerConfig = SchedulerConfig(),
         zoneId: ZoneId = ZoneId.of("UTC")
     ): CapacityReport {
-        val eligible = eligibleStudyDates(
-            startDate, endDate, availability, calendarExceptions, exams,
-            zoneId, config.examBlockWindowDays
+        val slots = studySlots(
+            startDate, endDate, availability, calendarExceptions, exams, zoneId, config
         )
-        val availableSessions = eligible.size
+        val availableSessions = slots.size
 
         var totalWeekdays = 0
         var cursor = startDate
@@ -80,15 +110,25 @@ object CapacityCalculator {
             cursor = cursor.plusDays(1)
         }
 
+        val minutesPerSession = if (config.useCompressedPlan) {
+            config.compressedLearningMinutesPerSession
+        } else {
+            config.newLearningMinutesPerSession
+        }
         val effectiveDurations = remainingTopics.map {
             (it.durationEstimateMinutes ?: config.defaultDurationMinutes).coerceAtLeast(1)
         }
         val newLearningSessions = effectiveDurations.sumOf {
-            ceilDiv(it, config.newLearningMinutesPerSession.coerceAtLeast(1))
+            ceilDiv(it, minutesPerSession.coerceAtLeast(1))
         }
         // Reserve a conservative slice for revision/assessment; it must never
         // consume more than a third of the available sessions in the estimate.
-        val revisionSessions = (effectiveDurations.size / 3).coerceAtMost(availableSessions / 3)
+        // Compression explicitly defers optional revision, so none is reserved.
+        val revisionSessions = if (config.useCompressedPlan) {
+            0
+        } else {
+            (effectiveDurations.size / 3).coerceAtMost(availableSessions / 3)
+        }
         val requiredSessions = newLearningSessions + revisionSessions
         val shortfall = (requiredSessions - availableSessions).coerceAtLeast(0)
 
@@ -133,3 +173,6 @@ data class CapacityReport(
     val feasible: Boolean,
     val warnings: List<String>
 )
+
+/** One study session; ordinal 1 is the optional extra weekday block. */
+data class StudySlot(val date: LocalDate, val ordinal: Int = 0)

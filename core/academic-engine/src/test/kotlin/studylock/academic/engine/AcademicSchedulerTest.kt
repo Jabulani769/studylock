@@ -7,6 +7,8 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 import studylock.common.clock.FixedClock
 import studylock.domain.CalendarException
+import studylock.domain.DataStatus
+import studylock.domain.Exam
 import studylock.domain.LearningEvent
 import studylock.domain.Module
 import studylock.domain.Semester
@@ -14,6 +16,7 @@ import studylock.domain.StudyAvailability
 import studylock.domain.Topic
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 
 class AcademicSchedulerTest {
@@ -389,5 +392,57 @@ class AcademicSchedulerTest {
         assertEquals(4, result.assignments.size)
         val assignmentDates = result.assignments.map { LocalDate.parse(it.date) }
         assertFalse(assignmentDates.contains(LocalDate.of(2026, 1, 12))) // Monday skipped
+    }
+
+    @Test
+    fun `routine mode ignores exam phasing`() {
+        val semester = createSemester()
+        val module = createModule(semester.id)
+        val topic = createTopic(module.id, "Variables")
+        val exam = Exam(
+            moduleId = module.id,
+            examType = "MIDSEM",
+            dateTime = LocalDateTime.of(2026, 1, 20, 9, 0),
+            dateStatus = DataStatus.VERIFIED
+        )
+
+        val request = ScheduleRequest(
+            semester = semester,
+            modules = listOf(module),
+            topics = listOf(topic),
+            availability = (1..5).map { createAvailability(it) },
+            calendarExceptions = emptyList(),
+            clock = clock,
+            startDate = LocalDate.of(2026, 1, 12),
+            endDate = LocalDate.of(2026, 1, 16),
+            exams = listOf(exam),
+            config = SchedulerConfig(routineMode = true)
+        )
+
+        val result = DefaultAcademicScheduler().generateSchedule(request)
+        assertEquals(AcademicPhase.ROLLING, result.phase)
+    }
+
+    @Test
+    fun `accepted extra weekday option adds a second weekday slot`() {
+        val semester = createSemester()
+        val module = createModule(semester.id)
+        val topic = createTopic(module.id, "Variables")
+
+        val request = ScheduleRequest(
+            semester = semester,
+            modules = listOf(module),
+            topics = listOf(topic),
+            availability = (1..5).map { createAvailability(it) },
+            calendarExceptions = emptyList(),
+            clock = clock,
+            startDate = LocalDate.of(2026, 1, 12),
+            endDate = LocalDate.of(2026, 1, 12),
+            config = SchedulerConfig(extraWeekdaySession = true)
+        )
+
+        val result = DefaultAcademicScheduler().generateSchedule(request)
+        assertEquals(2, result.assignments.size)
+        assertTrue(result.assignments.all { LocalDate.parse(it.date) == LocalDate.of(2026, 1, 12) })
     }
 }

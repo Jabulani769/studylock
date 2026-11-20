@@ -1,5 +1,6 @@
 package studylock.app.ui.screens.today
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.unit.dp
 import studylock.app.R
@@ -40,12 +44,16 @@ import java.util.Locale
 import studylock.app.AppUiState
 import studylock.app.NextAssignment
 import studylock.app.TodayState
+import studylock.app.profile.ProfilePhotoStore
+import studylock.app.profile.UserProfile
+import studylock.app.settings.RedesignChoice
 import studylock.app.asClockString
 import studylock.app.remainingSeconds
 import studylock.app.ui.components.DetailRow
 import studylock.app.ui.components.EmptyState
 import studylock.app.ui.components.HeroCard
 import studylock.app.ui.components.PrimaryActionButton
+import studylock.app.ui.components.SecondaryActionButton
 import studylock.app.ui.components.SectionHeading
 import studylock.app.ui.components.StatusChip
 import studylock.app.ui.components.StudyLockCard
@@ -60,11 +68,13 @@ fun TodayScreen(
     onResumeSession: () -> Unit,
     onOpenSetup: () -> Unit,
     onOpenAcademics: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenSummary: () -> Unit,
-    clockTick: StateFlow<Pair<Long, Long>>
+    clockTick: StateFlow<Pair<Long, Long>>,
+    photoStore: ProfilePhotoStore
 ) {
-    // Only this screen reads the ticking clock; the rest of the app stays put.
-    val tick by clockTick.collectAsStateWithLifecycle()
+    // The tick is collected only inside the countdown block so the rest of
+    // this screen is not recomposed every second during a 120-minute session.
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -82,11 +92,7 @@ fun TodayScreen(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "SL",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                ProfileAvatar(profile = state.profile, photoStore = photoStore)
             }
             Spacer(Modifier.width(Spacing.md))
             Column {
@@ -187,6 +193,8 @@ fun TodayScreen(
                     moduleFullName = today.plan.module.name,
                     topicTitle = today.plan.topic.title,
                     requiredMinutes = today.plan.requiredMinutes,
+                    slot = today.plan.slot,
+                    slotsToday = today.plan.slotsToday,
                     onStartSession = onStartSession
                 )
                 Spacer(Modifier.height(Spacing.lg))
@@ -213,8 +221,9 @@ fun TodayScreen(
                     moduleName = state.module(today.session.moduleId)?.let { it.code ?: it.name }
                         ?: "Study session",
                     topicTitle = state.topic(today.session.moduleId, today.session.topicId)?.title,
-                    nowMillis = if (tick.first == 0L) state.timestampMillis else tick.first,
-                    monotonicMillis = if (tick.second == 0L) state.monotonicMillis else tick.second,
+                    clockTick = clockTick,
+                    fallbackWallMillis = state.timestampMillis,
+                    fallbackMonotonicMillis = state.monotonicMillis,
                     onResumeSession = onResumeSession
                 )
             }
@@ -222,6 +231,32 @@ fun TodayScreen(
 
         Spacer(Modifier.height(Spacing.xxl))
         DataReadinessCard(state)
+        val proposal = state.redesignProposal
+        if (proposal != null && proposal.needed && state.redesignChoice == RedesignChoice.NONE) {
+            Spacer(Modifier.height(Spacing.lg))
+            StudyLockCard {
+                Text(
+                    text = if (proposal.goalAchievable) {
+                        "Your plan may need a different shape"
+                    } else {
+                        "This goal may not fit the time available"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    text = proposal.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                SecondaryActionButton(
+                    text = "Review planning options",
+                    onClick = onOpenSettings
+                )
+            }
+        }
         Spacer(Modifier.height(Spacing.xl))
     }
 }
@@ -232,6 +267,8 @@ private fun NextUpCard(
     moduleFullName: String,
     topicTitle: String,
     requiredMinutes: Int,
+    slot: Int = 0,
+    slotsToday: Int = 1,
     onStartSession: () -> Unit
 ) {
     SectionHeading(
@@ -302,7 +339,13 @@ private fun NextUpCard(
                     contentColor = Color(0xFF6C4CE0)
                 )
             ) {
-                Text("Start $requiredMinutes-minute session")
+                Text(
+                    if (slotsToday > 1) {
+                        "Start session $slot of $slotsToday ($requiredMinutes min)"
+                    } else {
+                        "Start $requiredMinutes-minute session"
+                    }
+                )
             }
         }
     }
@@ -313,17 +356,11 @@ private fun ActiveSessionCard(
     session: FocusSession,
     moduleName: String,
     topicTitle: String?,
-    nowMillis: Long,
-    monotonicMillis: Long,
+    clockTick: StateFlow<Pair<Long, Long>>,
+    fallbackWallMillis: Long,
+    fallbackMonotonicMillis: Long,
     onResumeSession: () -> Unit
 ) {
-    val remaining = session.remainingSeconds(nowMillis, monotonicMillis)
-    val progress = if (session.targetMinutes > 0) {
-        (elapsedMinutes(session, nowMillis, monotonicMillis).toFloat() / session.targetMinutes)
-            .coerceIn(0f, 1f)
-    } else {
-        0f
-    }
     StudyLockCard {
         StatusChip(
             text = if (session.state == SessionState.PAUSED) "Paused" else "Session in progress",
@@ -342,24 +379,11 @@ private fun ActiveSessionCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(Spacing.lg))
-        Text(
-            text = remaining.asClockString(),
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = "remaining",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(Spacing.md))
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surface
+        SessionCountdown(
+            session = session,
+            clockTick = clockTick,
+            fallbackWallMillis = fallbackWallMillis,
+            fallbackMonotonicMillis = fallbackMonotonicMillis
         )
         Spacer(Modifier.height(Spacing.lg))
         PrimaryActionButton(
@@ -367,6 +391,45 @@ private fun ActiveSessionCard(
             onClick = onResumeSession
         )
     }
+}
+
+/** Isolated so a one-second tick only recomposes the countdown, not the card. */
+@Composable
+private fun SessionCountdown(
+    session: FocusSession,
+    clockTick: StateFlow<Pair<Long, Long>>,
+    fallbackWallMillis: Long,
+    fallbackMonotonicMillis: Long
+) {
+    val tick by clockTick.collectAsStateWithLifecycle()
+    val nowMillis = if (tick.first == 0L) fallbackWallMillis else tick.first
+    val monotonicMillis = if (tick.second == 0L) fallbackMonotonicMillis else tick.second
+    val remaining = session.remainingSeconds(nowMillis, monotonicMillis)
+    val progress = if (session.targetMinutes > 0) {
+        (elapsedMinutes(session, nowMillis, monotonicMillis).toFloat() / session.targetMinutes)
+            .coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Text(
+        text = remaining.asClockString(),
+        style = MaterialTheme.typography.headlineLarge,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+    Text(
+        text = "remaining",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(Spacing.md))
+    LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.surface
+    )
 }
 
 @Composable
@@ -490,3 +553,30 @@ private fun summaryStateLabel(state: SessionState): String = when (state) {
 private fun dayShortName(day: Int): String =
     java.time.DayOfWeek.of(day)
         .getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())
+
+/** Shows the user's own initial, or their locally stored photo. */
+@Composable
+private fun ProfileAvatar(profile: UserProfile, photoStore: ProfilePhotoStore) {
+    val bitmap = remember(profile.photoFileName) {
+        photoStore.decode(profile.photoFileName)?.asImageBitmap()
+    }
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Profile photo",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(CircleShape)
+            )
+        } else {
+            Text(
+                text = profile.initial,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
